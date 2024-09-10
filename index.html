@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Air Hockey Mejorado con IA</title>
+    <style>
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #333;
+            overflow: hidden;
+        }
+        canvas {
+            background-color: #1a1a1a;
+            border: 2px solid #fff;
+            touch-action: none;
+        }
+        #menu, #victoryScreen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+        #menu {
+            z-index: 2;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 10px;
+            font-size: 1.2em;
+            background-color: #fff;
+            border: none;
+            cursor: pointer;
+        }
+        #goalMessage, #victoryMessage {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 3em;
+            color: #fff;
+            text-shadow: 2px 2px 5px #000;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="menu">
+        <h1 style="color: #fff;">Air Hockey Mejorado con IA</h1>
+        <button onclick="startGame(1)">Fácil</button>
+        <button onclick="startGame(2)">Medio</button>
+        <button onclick="startGame(3)">Difícil</button>
+    </div>
+
+    <div id="victoryScreen">
+        <h1 id="victoryMessage" style="color: #fff;"></h1>
+    </div>
+
+    <div id="goalMessage">¡Gol!</div>
+    
+    <canvas id="hockeyCanvas" width="800" height="400"></canvas>
+
+    <script>
+        const canvas = document.getElementById('hockeyCanvas');
+        const ctx = canvas.getContext('2d');
+        const goalMessage = document.getElementById('goalMessage');
+        const victoryMessage = document.getElementById('victoryMessage');
+        const menu = document.getElementById('menu');
+        const victoryScreen = document.getElementById('victoryScreen');
+        let player1, player2, puck, selectedDifficulty;
+        let gameRunning = false;  // Variable para controlar si el juego sigue activo
+        let touchPosition = { x: 700, y: 200 }; // Para controlar al jugador azul con el dedo
+        const maxSpeed = 6; // Velocidad máxima inicial del puck
+        const maxPoints = 5; // Puntos para ganar el juego
+        const maxPuckSpeed = 10; // Velocidad máxima del puck
+        const puckAcceleration = 1.05; // Aceleración del puck al rebotar
+        let cpuSpeed = 4; // Velocidad de la CPU ajustable
+
+        // Función para iniciar el juego con el nivel de dificultad seleccionado
+        function startGame(difficulty) {
+            selectedDifficulty = difficulty;
+            switch(difficulty) {
+                case 1: cpuSpeed = 2; break;  // Fácil
+                case 2: cpuSpeed = 4; break;  // Medio
+                case 3: cpuSpeed = 6; break;  // Difícil
+            }
+            menu.style.display = 'none';  // Ocultar el menú cuando comienza el juego
+            victoryScreen.style.display = 'none';  // Ocultar la pantalla de victoria
+            resetGame();
+            gameRunning = true;  // Asegurar que el juego está activo
+            gameLoop();  // Iniciar el bucle del juego
+        }
+
+        // Restablecer el juego
+        function resetGame() {
+            player1 = { x: 700, y: 200, radius: 30, color: '#0000ff', score: 0, speed: 5 }; // Jugador Azul (humano)
+            player2 = { x: 100, y: 200, radius: 30, color: '#ff0000', score: 0, speed: cpuSpeed }; // CPU Roja
+            puck = { 
+                x: canvas.width / 2, y: canvas.height / 2, radius: 15, 
+                speedX: randomSpeed(), speedY: randomSpeed(), 
+                color: '#ffffff'
+            };
+        }
+
+        // Función para crear una velocidad aleatoria inicial para el puck
+        function randomSpeed() {
+            return (Math.random() > 0.5 ? 1 : -1) * (Math.random() * maxSpeed + 2);
+        }
+
+        // Control táctil para mover al jugador azul
+        canvas.addEventListener('touchmove', function(e) {
+            const touch = e.touches[0];
+            touchPosition.x = touch.clientX - canvas.offsetLeft;
+            touchPosition.y = touch.clientY - canvas.offsetTop;
+        });
+
+        // Dibujar el campo con pseudo-3D
+        function drawField() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Fondo de la cancha (efecto 3D con gradiente)
+            let grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+            grad.addColorStop(0, '#444');
+            grad.addColorStop(1, '#222');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Dibujar línea central (efecto de perspectiva)
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 5;
+            ctx.beginPath();
+            ctx.moveTo(canvas.width / 2, 0);
+            ctx.lineTo(canvas.width / 2, canvas.height);
+            ctx.stroke();
+
+            // Dibujar porterías con efecto 3D
+            ctx.fillStyle = '#555';  // Color gris oscuro
+            ctx.fillRect(0, canvas.height / 3, 10, canvas.height / 3); // Portería jugador azul
+            ctx.fillRect(canvas.width - 10, canvas.height / 3, 10, canvas.height / 3); // Portería CPU roja
+        }
+
+        // Dibujar jugadores y puck con sombras para el efecto 3D
+        function drawPlayers() {
+            // Jugador Azul (humano)
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = player1.color;
+            ctx.beginPath();
+            ctx.arc(player1.x, player1.y, player1.radius, 0, Math.PI * 2);
+            ctx.fillStyle = player1.color;
+            ctx.fill();
+
+            // Jugador Rojo (CPU)
+            ctx.shadowColor = player2.color;
+            ctx.beginPath();
+            ctx.arc(player2.x, player2.y, player2.radius, 0, Math.PI * 2);
+            ctx.fillStyle = player2.color;
+            ctx.fill();
+
+            // Puck con sombra
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = puck.color;
+            ctx.beginPath();
+            ctx.arc(puck.x, puck.y, puck.radius, 0, Math.PI * 2);
+            ctx.fillStyle = puck.color;
+            ctx.fill();
+
+            // Reiniciar sombra para el siguiente frame
+            ctx.shadowBlur = 0;
+        }
+
+        // Actualizar posiciones de los jugadores
+        function updatePlayers() {
+            // Jugador Azul: el humano lo mueve con el dedo (control táctil)
+            player1.x = touchPosition.x;
+            player1.y = touchPosition.y;
+
+            // Limitar al jugador azul a su mitad de la cancha
+            if (player1.x < canvas.width / 2 + player1.radius) {
+                player1.x = canvas.width / 2 + player1.radius;
+            }
+
+            // Limitar a que no se salga del tablero
+            if (player1.y - player1.radius < 0) {
+                player1.y = player1.radius;
+            }
+            if (player1.y + player1.radius > canvas.height) {
+                player1.y = canvas.height - player1.radius;
+            }
+
+            // CPU Roja: sigue el disco en su mitad de la cancha
+            if (puck.x < canvas.width / 2) {
+                if (puck.y > player2.y) {
+                    player2.y += player2.speed;
+                } else if (puck.y < player2.y) {
+                    player2.y -= player2.speed;
+                }
+            }
+
+            // Limitar a la CPU a su lado y dentro del tablero
+            if (player2.y - player2.radius < 0) {
+                player2.y = player2.radius;
+            }
+            if (player2.y + player2.radius > canvas.height) {
+                player2.y = canvas.height - player2.radius;
+            }
+        }
+
+        // Movimiento del puck
+        function updatePuck() {
+            puck.x += puck.speedX;
+            puck.y += puck.speedY;
+
+            // Limitar la velocidad del puck
+            puck.speedX = Math.min(Math.max(puck.speedX, -maxPuckSpeed), maxPuckSpeed);
+            puck.speedY = Math.min(Math.max(puck.speedY, -maxPuckSpeed), maxPuckSpeed);
+
+            // Rebote contra las paredes superior e inferior
+            if (puck.y - puck.radius < 0 || puck.y + puck.radius > canvas.height) {
+                puck.speedY = -puck.speedY;
+            }
+
+            // Evitar que la bola atraviese a los jugadores
+            if (distance(puck, player1) < puck.radius + player1.radius || distance(puck, player2) < puck.radius + player2.radius) {
+                puck.speedX = -puck.speedX;
+
+                // Aumentamos la velocidad del puck cuando rebota en los jugadores
+                puck.speedX *= puckAcceleration;
+                puck.speedY *= puckAcceleration;
+            }
+
+            // Verificar si entra en la portería
+            if (puck.x - puck.radius < 10 && puck.y > canvas.height / 3 && puck.y < 2 * canvas.height / 3) {
+                player2.score++;
+                displayGoalMessage();
+                resetPuck();
+                checkVictory(player2);
+            } else if (puck.x + puck.radius > canvas.width - 10 && puck.y > canvas.height / 3 && puck.y < 2 * canvas.height / 3) {
+                player1.score++;
+                displayGoalMessage();
+                resetPuck();
+                checkVictory(player1);
+            } else if (puck.x - puck.radius < 0 || puck.x + puck.radius > canvas.width) {
+                // Si el puck sale de la cancha sin marcar, rebota en las paredes laterales
+                puck.speedX = -puck.speedX;
+            }
+        }
+
+        // Verificar si alguien ha ganado el juego
+        function checkVictory(player) {
+            if (player.score >= maxPoints) {
+                victoryMessage.textContent = player === player1 ? '¡Ganaste!' : '¡La CPU ganó!';
+                victoryScreen.style.display = 'flex';
+                setTimeout(() => {
+                    menu.style.display = 'flex';  // Volver al menú principal
+                }, 2000);  // Mostrar el menú después de 2 segundos
+                gameRunning = false; // Detener el juego al alcanzar la victoria
+            }
+        }
+
+        // Función para restablecer el puck al centro
+        function resetPuck() {
+            puck.x = canvas.width / 2;
+            puck.y = canvas.height / 2;
+            puck.speedX = randomSpeed();
+            puck.speedY = randomSpeed();
+        }
+
+        // Mostrar mensaje de gol
+        function displayGoalMessage() {
+            goalMessage.style.display = 'block';
+            setTimeout(() => {
+                goalMessage.style.display = 'none';
+            }, 1000);
+        }
+
+        // Calcular la distancia entre dos objetos
+        function distance(obj1, obj2) {
+            return Math.sqrt((obj2.x - obj1.x) ** 2 + (obj2.y - obj1.y) ** 2);
+        }
+
+        // Bucle principal del juego
+        function gameLoop() {
+            if (gameRunning) {
+                drawField();
+                drawPlayers();
+                updatePlayers();
+                updatePuck();
+
+                // Mostrar puntuación
+                ctx.font = "20px Arial";
+                ctx.fillStyle = "#fff";
+                ctx.fillText(`Jugador (Azul): ${player1.score}`, 20, 30);
+                ctx.fillText(`CPU (Rojo): ${player2.score}`, canvas.width - 150, 30);
+
+                requestAnimationFrame(gameLoop); // Solo continuar si el juego está en curso
+            }
+        }
+
+    </script>
+
+</body>
+  </html>
